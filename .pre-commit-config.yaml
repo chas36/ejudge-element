@@ -1,0 +1,14 @@
+repos:
+  - repo: local
+    hooks:
+      - id: element-shell-syntax
+        name: Check Element shell scripts
+        entry: bash -n
+        language: system
+        files: ^(scripts/element(-version)?\.in|tests/element-adapter-smoke\.sh)$
+      - id: element-adapter-smoke
+        name: Check Element adapter properties
+        entry: bash tests/element-adapter-smoke.sh
+        language: system
+        files: ^(scripts/element(-version)?\.in|tests/element-adapter-smoke\.sh)$
+        pass_filenames: false

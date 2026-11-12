@@ -1,0 +1,62 @@
+#!/bin/bash
+# ejudge compile adapter for 1C:Enterprise.Element Script-X.
+# Usage: element <input> <output> <property-file>
+
+set -eu
+
+LANG_CONFIG_DIR="@lang_config_dir@"
+if [ -z "${EJUDGE_LANG_CONFIG:-}" ]; then
+  EJUDGE_LANG_CONFIG="${LANG_CONFIG_DIR}/element.cfg"
+fi
+
+if [ -f "${EJUDGE_LANG_CONFIG}" ]; then
+  # shellcheck disable=SC1090
+  . "${EJUDGE_LANG_CONFIG}"
+else
+  version=""
+  ELEMENTPATH="/opt/1c/element-script-10.0.2-1/executor"
+fi
+
+if [ -z "${version:-}" ] || [ ! -x "${ELEMENTPATH}" ]; then
+  echo "1C:Enterprise.Element Script is not available." >&2
+  exit 1
+fi
+
+if [ -n "${EJUDGE_BUILD_SCRIPT:-}" ]; then
+  export EJUDGE_LANGUAGE="element"
+  export EJUDGE_COMPILER="${ELEMENTPATH}"
+  exec "${EJUDGE_BUILD_SCRIPT}" "$@"
+fi
+
+if [ -n "${EJUDGE_OPT_BUILD_SCRIPT:-}" ] && [ -x "${EJUDGE_OPT_BUILD_SCRIPT}" ]; then
+  export EJUDGE_LANGUAGE="element"
+  export EJUDGE_COMPILER="${ELEMENTPATH}"
+  exec "${EJUDGE_OPT_BUILD_SCRIPT}" "$@"
+fi
+
+if [ "${EJUDGE_EXE_PROPERTIES:-}" = "1" ]; then
+  cp -p "$1" "$2"
+  chmod +x "$2"
+  printf '{ "start_cmd": "%s", "start_args": ["%s"] }\n' \
+    "${ELEMENTPATH}" "${ELEMENTPATH}" > "$3"
+  exit 0
+fi
+
+# Compatibility path for ejudge installations that do not request an
+# executable property file. Package the source into a small POSIX wrapper so
+# the run worker receives a regular executable, just as it does for other
+# interpreted languages.
+encoded_source="$(base64 < "$1" | tr -d '\n')"
+cat > "$2" <<EOF
+#!/bin/sh
+source_file="\${TMPDIR:-/tmp}/ejudge_element_\$\$.sbsl"
+cleanup() { /bin/rm -f "\$source_file"; }
+trap cleanup EXIT HUP INT TERM
+printf '%s' '$encoded_source' | /usr/bin/base64 -d > "\$source_file"
+"${ELEMENTPATH}" "\$source_file"
+status=\$?
+cleanup
+trap - EXIT HUP INT TERM
+exit \$status
+EOF
+chmod +x "$2"

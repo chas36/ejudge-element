@@ -1,0 +1,38 @@
+#!/bin/bash
+# Detect a separately installed 1C:Enterprise.Element Script 10.0.2-1 runtime.
+
+LANG_CONFIG_DIR="@lang_config_dir@"
+DEFAULT_EXECUTOR=/opt/1c/element-script-10.0.2-1/executor
+
+if [ "${1:-}" = -l ]; then
+  echo '1C:Enterprise.Element Script 10.0.2-1 [https://lang.1c.ru/]'
+  exit 0
+fi
+
+if [ "${1:-}" = -r ]; then
+  candidate="${2:-$DEFAULT_EXECUTOR}"
+  [ -d "$candidate" ] && candidate="$candidate/executor"
+  if [ ! -x "$candidate" ]; then
+    echo 'version='; echo 'arg=""'; echo 'ELEMENTPATH=/bin/false'
+    exit 1
+  fi
+  detected=$("$candidate" -v 2>&1 | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+-[0-9]+' | head -1)
+  if [ "$detected" != 10.0.2-1 ]; then
+    echo 'version='; echo 'arg=""'; echo 'ELEMENTPATH=/bin/false'
+    exit 1
+  fi
+  printf 'version="%s"\narg=""\nlong_name="1С:Предприятие.Элемент Скрипт"\nsrc_sfx=".sbsl"\narch="linux-shared"\nELEMENTPATH="%s"\n' "$detected" "$(readlink -f "$candidate")"
+  exit 0
+fi
+
+config="${EJUDGE_LANG_CONFIG:-$LANG_CONFIG_DIR/element.cfg}"
+[ -f "$config" ] || exit 1
+# shellcheck disable=SC1090
+. "$config"
+[ "${version:-}" = 10.0.2-1 ] && [ -x "${ELEMENTPATH:-}" ] || exit 1
+if [ "${1:-}" = -p ]; then
+  printf '%s\n' "$ELEMENTPATH"
+else
+  [ "${1:-}" = -f ] && printf '1C:Enterprise.Element Script '
+  "$ELEMENTPATH" -v
+fi

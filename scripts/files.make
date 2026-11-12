@@ -80,6 +80,8 @@ SCRIPTS_IN = \
  python-version.in\
  python3.in\
  python3-version.in\
+ element.in\
+ element-version.in\
  pypy.in\
  pypy-version.in\
  pypy3.in\
