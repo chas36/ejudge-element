@@ -64,4 +64,4 @@ src_sfx = ".sbsl"
 
 ## Состав публикации
 
-Исходники eJudge остаются под их исходной лицензией; текст GPL-2.0 сохранён в `COPYING`. Добавлены `scripts/element.in`, `scripts/element-version.in`, регистрация в `scripts/files.make` и `scripts/lang_ids.cfg`, этот документ, пример и проверочный тест. Дистрибутив 1С, резервные копии, данные турнира, решения участников, задачи Polygon, пароли, ключи и токены в форк не входят.
+Исходники eJudge остаются под их исходной лицензией; текст GPL-2.0 сохранён в `COPYING`. Добавлены `scripts/element.in`, `scripts/element-version.in`, регистрация в `scripts/files.make` и `scripts/lang_ids.cfg`, этот документ, пример и проверочный тест.
