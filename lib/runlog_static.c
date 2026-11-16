@@ -1,6 +1,6 @@
 /* -*- c -*- */
 
-/* Copyright (C) 2008-2018 Alexander Chernov <cher@ejudge.ru> */
+/* Copyright (C) 2008-2026 Alexander Chernov <cher@ejudge.ru> */
 
 /*
  * This program is free software; you can redistribute it and/or
@@ -499,4 +499,71 @@ run_status_short_str(int status)
     return buf;
   }
   return status_short_str[status];
+}
+
+
+static const unsigned char * const review_status_values[] =
+{
+  [RERS_REQUESTED_REVIEW] = "requested_review",
+  [RERS_WAITING_REVIEW] = "waiting_review",
+  [RERS_REVIEWING] = "reviewing",
+  [RERS_WAITING_APPROVAL] = "waiting_approval",
+  [RERS_COMPLETE] = "complete",
+  [RERS_COMPLETE_HIDDEN] = "complete_hidden",
+  [RERS_CANCELED] = "canceled",
+  [RERS_FAILED] = "failed",
+};
+
+const unsigned char *
+run_unparse_review_status(unsigned val)
+{
+  if (val >= sizeof(review_status_values) / sizeof(review_status_values[0])) {
+    return "";
+  }
+  const unsigned char *s = review_status_values[val];
+  if (!s) return "";
+  return s;
+}
+
+int
+run_parse_review_status(const char *s)
+{
+  if (!s) return -1;
+  for (unsigned i = 1; i < sizeof(review_status_values) / sizeof(review_status_values[0]); ++i) {
+    if (!strcasecmp(s, review_status_values[i])) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+const unsigned char *
+run_unparse_review_purpose(unsigned val)
+{
+    static const unsigned char * const values[] =
+    {
+        [RERP_REVIEW] = "review",
+        [RERP_HELP] = "help",
+        [RERP_JUDGE_HELP] = "judge_help",
+    };
+    if (val >= sizeof(values) / sizeof(values[0])) {
+        return "";
+    }
+    const unsigned char *s = values[val];
+    if (!s) return "";
+    return s;
+}
+
+const unsigned char *
+run_unparse_utime_t(unsigned char *buf, size_t size, int64_t ts)
+{
+  struct tm ttm;
+  time_t t_part = ts / 1000000;
+  int u_part = ts % 1000000;
+  localtime_r(&t_part, &ttm);
+  __attribute__((unused)) int _;
+  _ = snprintf(buf, size, "%04d-%02d-%02d %02d:%02d:%02d.%06d",
+      ttm.tm_year + 1900, ttm.tm_mon + 1, ttm.tm_mday,
+      ttm.tm_hour, ttm.tm_min, ttm.tm_sec, u_part);
+  return buf;
 }

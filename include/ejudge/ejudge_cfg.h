@@ -3,7 +3,7 @@
 #ifndef __EJUDGE_CFG_H__
 #define __EJUDGE_CFG_H__ 1
 
-/* Copyright (C) 2002-2025 Alexander Chernov <cher@ejudge.ru> */
+/* Copyright (C) 2002-2026 Alexander Chernov <cher@ejudge.ru> */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -160,6 +160,9 @@ struct ejudge_cfg
   struct ejudge_cfg_caps_file *caps_file_info;
   unsigned char *ejudge_xml_path;
   struct ejudge_cfg_agent_server *agent_server;
+
+  unsigned char *default_compile_queue;
+  unsigned char *default_run_queue;
 };
 
 struct ejudge_cfg *ejudge_cfg_parse(char const *, int no_system_lookup);
@@ -247,5 +250,33 @@ unsigned char *
 ejudge_cfg_load_token_from_file(
         const struct ejudge_cfg *cfg,
         const unsigned char *token_file);
+
+int
+ejudge_cfg_unparse_capabilities_xml(
+        FILE *f,
+        const struct ejudge_cfg *cfg);
+
+int
+ejudge_cfg_delete_oauth_entry(
+        struct ejudge_cfg *root,
+        const unsigned char *oauth_user_str);
+int
+ejudge_cfg_upsert_oauth_entry(
+        struct ejudge_cfg *root,
+        const unsigned char *oauth_user_str,
+        const unsigned char *local_user_str,
+        const unsigned char *provider);
+
+int
+ejudge_cfg_delete_caps(
+        struct ejudge_cfg *root,
+        const unsigned char *login);
+
+int
+ejudge_cfg_upsert_caps(
+        struct ejudge_cfg *root,
+        const unsigned char *login,
+        opcap_t caps,
+        int operation);
 
 #endif /* __EJUDGE_CFG_H__ */

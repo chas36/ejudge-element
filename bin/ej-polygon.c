@@ -125,6 +125,7 @@ struct ProblemInfo
     int discard_id;
     unsigned char *edit_session;
     int has_hidden_groups;
+    signed char interactive_valuer;
 
     // extracted from problem.xml
     int time_limit_ms;
@@ -1741,6 +1742,7 @@ process_problem_row(
     pi->state = STATE_FAILED;
     pi->problem_id = id;
     pi->problem_name = strdup(buf);
+    pi->interactive_valuer = -1;
 
     const unsigned char *s = text;
     if (!(s = strstr(s, "<td"))) {
@@ -3362,18 +3364,74 @@ replace(
         const unsigned char *to,
         size_t to_size)
 {
+    if (!from_size || !*p_size) {
+        return;
+    }
     if (from_size >= to_size) {
-        // inplace
-        // FIXME: implement it properly!
-        unsigned char *p = *p_data;
+        unsigned char *p_from = *p_data;
+        unsigned char *p_to = *p_data;
+        size_t rem_size = *p_size;
         unsigned char *q;
-        while ((q = strstr(p, from)) != NULL) {
-            memcpy(q, to, to_size);
-            memmove(q + to_size, q + from_size, *p_size - (q - p) - from_size + 1);
-            p = q + to_size;
+        while (rem_size > 0 && (q = memmem(p_from, rem_size, from, from_size))) {
+            // copy non-matching part
+            size_t copy_len = q - p_from;
+            if (copy_len > 0 && p_from != p_to) {
+                memmove(p_to, p_from, copy_len);
+            }
+            p_from += copy_len;
+            p_to += copy_len;
+            rem_size -= copy_len;
+            // change matching part
+            if (to_size) memcpy(p_to, to, to_size);
+            p_to += to_size;
+            p_from += from_size;
+            rem_size -= from_size;
         }
+        // non-matching tail
+        if (rem_size > 0) {
+            memmove(p_to, p_from, rem_size);
+            p_to += rem_size;
+            p_from += rem_size;
+        }
+        if (p_to != p_from) {
+            *p_to = 0;
+        }
+        *p_size = (p_to - *p_data);
     } else {
-        abort();
+        unsigned char *p_from = *p_data;
+        size_t rem_size = *p_size;
+        unsigned char *q;
+        size_t out_size = 0;
+        while (rem_size > 0 && (q = memmem(p_from, rem_size, from, from_size))) {
+            size_t copy_len = (size_t) (q - p_from);
+            out_size += copy_len + to_size;
+            p_from = q + from_size;
+            rem_size -= copy_len + from_size;
+        }
+        out_size += rem_size;
+        unsigned char *new_data = xmalloc(out_size + 1);
+        p_from = *p_data;
+        rem_size = *p_size;
+        unsigned char *p_to = new_data;
+        while (rem_size > 0 && (q = memmem(p_from, rem_size, from, from_size))) {
+            size_t copy_len = q - p_from;
+            memcpy(p_to, p_from, copy_len);
+            p_from += copy_len;
+            p_to += copy_len;
+            rem_size -= copy_len;
+            if (to_size) memcpy(p_to, to, to_size);
+            p_to += to_size;
+            p_from += from_size;
+            rem_size -= from_size;
+        }
+        if (rem_size > 0) {
+            memcpy(p_to, p_from, rem_size);
+            p_to += rem_size;
+            p_from += rem_size;
+        }
+        *p_to = 0;
+        xfree(*p_data); *p_data = new_data; new_data = NULL;
+        *p_size = out_size;
     }
 }
 
@@ -3678,6 +3736,7 @@ process_polygon_zip(
         fclose(ot_f);
         pi->open_tests = ot_s;
         pi->standard_valuer = xstrdup("gvaluer");
+        pi->interactive_valuer = 1;
     }
     if (pi->test_u > 0) {
         int sum = 0;
@@ -3698,7 +3757,7 @@ process_polygon_zip(
                 if (gi->group_score > 0) {
                     full_user_score += gi->group_score;
                 } else if (gi->test_score > 0) {
-                    for (int j = 0; i < pi->test_u; ++j) {
+                    for (int j = 0; j < pi->test_u; ++j) {
                         const struct TestInfo *ti = &pi->tests[j];
                         if (ti->group && !strcmp(ti->group, gi->name) && ti->score > 0) {
                             full_user_score += ti->score;
@@ -4076,6 +4135,9 @@ process_polygon_zip(
     }
     if (pi->standard_valuer && pi->standard_valuer[0]) {
         prob_cfg->standard_valuer = xstrdup(pi->standard_valuer);
+    }
+    if (pi->interactive_valuer >= 0) {
+        prob_cfg->interactive_valuer = pi->interactive_valuer;
     }
     if (full_score > 0) {
         prob_cfg->full_score = full_score;

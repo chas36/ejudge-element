@@ -2,7 +2,7 @@
 #ifndef __HTTP_REQUEST_H__
 #define __HTTP_REQUEST_H__
 
-/* Copyright (C) 2014-2024 Alexander Chernov <cher@ejudge.ru> */
+/* Copyright (C) 2014-2026 Alexander Chernov <cher@ejudge.ru> */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -158,6 +158,15 @@ struct http_request_info
   struct cJSON *json_result;
   unsigned char *err_msg;
   int err_num;
+  unsigned err_id;
+
+  int (*load_contest)(
+        const struct ejudge_cfg *config,
+        struct server_framework_state *fw_state,
+        struct userlist_clnt *ul_conn,
+        int contest_id);
+
+  unsigned char x_request_id[64];   // X-Request-ID header, generated at random if missing
 
   __attribute__((aligned(16))) unsigned char data[0];
 };
@@ -216,6 +225,13 @@ hr_cgi_param_int_opt(
         const unsigned char *name,
         int *p_val,
         int default_value);
+
+int
+hr_cgi_param_long_long_opt(
+        struct http_request_info *phr,
+        const unsigned char *name,
+        long long *p_val,
+        long long default_value);
 
 int
 hr_cgi_param_bool_opt(

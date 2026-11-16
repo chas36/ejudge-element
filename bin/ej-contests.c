@@ -1,6 +1,6 @@
 /* -*- mode: c -*- */
 
-/* Copyright (C) 2006-2024 Alexander Chernov <cher@ejudge.ru> */
+/* Copyright (C) 2006-2026 Alexander Chernov <cher@ejudge.ru> */
 
 /*
  * This program is free software; you can redistribute it and/or modify
@@ -42,6 +42,7 @@
 #include "ejudge/session_cache.h"
 #include "ejudge/server_info.h"
 #include "ejudge/mixed_id.h"
+#include "ejudge/random.h"
 
 #include "ejudge/xalloc.h"
 #include "ejudge/osdeps.h"
@@ -352,6 +353,8 @@ cmd_http_request(
   hr.param_sizes = my_param_sizes;
   hr.params = params;
   hr.config = ejudge_config;
+  hr.userlist_clnt = ul_conn;
+  hr.err_id = random_u32();
 
   // ok, generate HTML
   hr.out_f = open_memstream(&hr.out_t, &hr.out_z);
@@ -557,6 +560,7 @@ handle_ws_request(
   hr.locale_id = -1;
   hr.config = ejudge_config;
   hr.json = root;
+  hr.err_id = random_u32();
 
   //hr.log_f = open_memstream(&hr.log_t, &hr.log_z);
   hr.out_f = open_memstream(&hr.out_t, &hr.out_z);
@@ -1045,6 +1049,7 @@ main(int argc, char *argv[])
 #endif
   setup_log_file();
   setup_metrics_file(ejudge_config);
+  random_init();
 
   info("ej-contests %s, compiled %s", compile_version, compile_date);
 

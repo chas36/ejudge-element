@@ -18,6 +18,7 @@
 #include "ejudge/ej_types.h"
 #include "ejudge/ej_limits.h"
 #include "ejudge/http_request.h"
+#include "ejudge/markdown.h"
 #include "ejudge/new-server.h"
 #include "ejudge/new_server_proto.h"
 #include "ejudge/opcaps.h"
@@ -91,6 +92,7 @@
 #include "ejudge/logger.h"
 #include "ejudge/osdeps.h"
 
+#include <bits/types/struct_timeval.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdarg.h>
@@ -177,9 +179,16 @@ emit_json_result(
         struct http_request_info *phr,
         int ok,
         int err_num,
-        unsigned err_id,
         const unsigned char *err_msg,
         cJSON *jr);
+void ns_emit_json_result(
+        FILE *fout,
+        struct http_request_info *phr,
+        int ok,
+        int err_num,
+        const unsigned char *err_msg,
+        cJSON *jr)
+  __attribute__((weak,alias("emit_json_result")));
 
 static struct new_session_info *priv_get_cached_session(struct http_request_info *phr);
 static struct new_session_info *unpriv_get_cached_session(struct http_request_info *phr);
@@ -7898,6 +7907,16 @@ cleanup:
   return 0;
 }
 
+#define BITS_PER_LONG (8*sizeof(unsigned long))
+
+int
+ns_priv_review_displayed(
+        FILE *fout,
+        FILE *log_f,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+
 typedef int (*action_handler2_t)(FILE *fout,
                                  FILE *log_f,
                                  struct http_request_info *phr,
@@ -8050,8 +8069,6 @@ static action_handler2_t priv_actions_table_2[NEW_SRV_ACTION_LAST] =
   [NEW_SRV_ACTION_TOGGLE_REG_READONLY] = priv_user_toggle_flags,
   [NEW_SRV_ACTION_USER_CHANGE_STATUS_2] = priv_user_change_status_2,
   [NEW_SRV_ACTION_CONFIRM_AVATAR] = priv_confirm_avatar,
-
-  /* for priv_generic_page */
   [NEW_SRV_ACTION_DOWNLOAD_RUN] = priv_download_source,
   [NEW_SRV_ACTION_REJUDGE_DISPLAYED_1] = priv_confirmation_page,
   [NEW_SRV_ACTION_FULL_REJUDGE_DISPLAYED_1] = priv_confirmation_page,
@@ -8103,6 +8120,7 @@ static action_handler2_t priv_actions_table_2[NEW_SRV_ACTION_LAST] =
   [NEW_SRV_ACTION_COMPILER_OP] = priv_compiler_operation,
   [NEW_SRV_ACTION_INVOKER_REBOOT] = priv_invoker_operation,
   [NEW_SRV_ACTION_CLEAR_SESSION_CACHE] = priv_contest_operation,
+  [NEW_SRV_ACTION_REVIEW_DISPLAYED_2] = ns_priv_review_displayed,
 };
 
 static void
@@ -9684,6 +9702,16 @@ priv_list_runs_json(
           }
           fprintf(fout, "]");
         }
+        if (run_fields & (1LL << RUN_VIEW_EXT_REVIEW)) {
+          if (pe->review_gen) {
+            fprintf(fout, ",\"review_gen\":%d", pe->review_gen);
+            fprintf(fout, ",\"review_status\":%d", pe->review_status);
+          }
+          if (pe->hidden_review_gen) {
+            fprintf(fout, ",\"hidden_review_gen\":%d", pe->hidden_review_gen);
+            fprintf(fout, ",\"hidden_review_status\":%d", pe->hidden_review_status);
+          }
+        }
       }
     }
     fprintf(fout, "}");
@@ -9912,7 +9940,7 @@ priv_get_user(
 done:;
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   free(xml_text);
   if (u) {
     userlist_free(&u->b);
@@ -10052,7 +10080,7 @@ priv_copy_user_info(
 done:;
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   if (jr) {
     cJSON_Delete(jr);
   }
@@ -10363,7 +10391,7 @@ priv_change_registration(
 done:;
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   if (jr) {
     cJSON_Delete(jr);
   }
@@ -10930,7 +10958,7 @@ priv_problem_status_json(
 done:;
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   if (jr) {
     cJSON_Delete(jr);
   }
@@ -11007,7 +11035,7 @@ priv_list_languages_json(
 
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   if (jr) {
     cJSON_Delete(jr);
   }
@@ -11080,7 +11108,7 @@ priv_list_problems_json(
 
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   if (jr) {
     cJSON_Delete(jr);
   }
@@ -11218,7 +11246,7 @@ priv_get_problem_json(
 
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   if (jr) {
     cJSON_Delete(jr);
   }
@@ -11563,7 +11591,7 @@ priv_create_user_session_json(
 done:;
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   free(xml_text);
   free(base_xml_text);
   if (u) {
@@ -11911,7 +11939,7 @@ priv_change_registrations_json(
 done:;
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   if (jr) {
     cJSON_Delete(jr);
   }
@@ -11942,6 +11970,240 @@ userlist_error:;
   err_num = NEW_SRV_ERR_INTERNAL;
   goto done;
 }
+
+static int
+load_other_contest(
+        const struct ejudge_cfg *config,
+        struct server_framework_state *fw_state,
+        struct userlist_clnt *ul_conn,
+        int contest_id)
+{
+  const struct contest_desc *cnts = NULL;
+
+  if (contests_get(contest_id, &cnts) < 0 || !cnts) {
+    err("%s:%d: failed to load contest %d", __FUNCTION__, __LINE__, contest_id);
+    return -1;
+  }
+
+  struct contest_extra *extra = ns_get_contest_extra(cnts, config);
+  ASSERT(extra);
+
+  struct teamdb_db_callbacks callbacks = {};
+  callbacks.user_data = (void*) fw_state;
+  callbacks.list_all_users = ns_list_all_users_callback;
+
+  return serve_state_load_contest(extra, config, contest_id, ul_conn, &callbacks, NULL, 0, ns_load_problem_plugin);
+}
+
+const unsigned char *
+ns_get_language_name(int lang_id)
+{
+  static const unsigned char * const standard_languages[] =
+  {
+    [1] = "pascal",
+    [2] = "c",
+    [3] = "cpp",
+    [4] = "pascal",
+    [5] = "java",
+    [6] = "fortran",
+    [7] = "pascal",
+    [8] = "delphi",
+    [9] = "c",
+    [10] = "cpp",
+    [11] = "basic",
+    [12] = "scheme",
+    [13] = "python",
+    [14] = "perl",
+    [15] = "prolog",
+    [16] = "basic",
+    [17] = "java",
+    [18] = "java",
+    [19] = "csharp",
+    [20] = "basic",
+    [21] = "ruby",
+    [22] = "php",
+    [23] = "python",
+    [24] = "kumir",
+    [25] = "make",
+    [26] = "haskell",
+    [27] = "basic",
+    [28] = "c",
+    [29] = "cpp",
+    [50] = "asm",
+    [51] = "c",
+    [52] = "cpp",
+    [53] = "go",
+    [54] = "make",
+    [55] = "pascal_abc.net",
+    [57] = "c",
+    [58] = "cpp",
+    [59] = "pascal",
+    [60] = "basic",
+    [61] = "c",
+    [62] = "cpp",
+    [63] = "python",
+    [64] = "python",
+    [65] = "kumir",
+    [66] = "asm",
+    [67] = "asm",
+    [68] = "mips_assembly",
+    [69] = "scala",
+    [70] = "rust",
+    [71] = "kotlin",
+    [72] = "javascript",
+    [73] = "csharp",
+    [74] = "basic",
+    [75] = "riscv_assembly",
+    [76] = "swift",
+    [79] = "postgres_sql",
+    [80] = "zig",
+    [81] = "bash",
+  };
+  if ((unsigned) lang_id >= sizeof(standard_languages)/sizeof(standard_languages[0])) {
+    return "unknown";
+  }
+  if (!standard_languages[lang_id]) {
+    return "unknown";
+  }
+  return standard_languages[lang_id];
+}
+
+unsigned char *
+ns_safe_read_utf8_text_file(
+        const unsigned char *dir,
+        const unsigned char *file,
+        unsigned err_id,
+        int missing_is_ok)
+{
+  FILE *fin = NULL;
+  FILE *fout = NULL;
+  int fd = -1;
+  struct stat stb;
+  char *txt_s = NULL;
+  size_t txt_z = 0;
+  int c;
+  unsigned char path_buf[PATH_MAX];
+  const unsigned char *path = file;
+
+  if (dir && *dir) {
+    if (snprintf(path_buf, sizeof(path_buf), "%s/%s", dir, file) >= (int) sizeof(path_buf)) {
+      err("%s:%d:%08x: path is too long, file '%s'", __PRETTY_FUNCTION__, __LINE__, err_id, file);
+      goto fail;
+    }
+    path = path_buf;
+  }
+  fd = open(path, O_RDONLY | O_CLOEXEC | O_NOCTTY | O_NONBLOCK, 0);
+  if (fd < 0) {
+    if (missing_is_ok && errno == ENOENT) return NULL;
+    err("%s:%d:%08x: open '%s' failed: %s", __PRETTY_FUNCTION__, __LINE__, err_id, path, strerror(errno));
+    goto fail;
+  }
+  if (fstat(fd, &stb) < 0) {
+    err("%s:%d:%08x: fstat '%s' failed: %s", __PRETTY_FUNCTION__, __LINE__, err_id, path, strerror(errno));
+    goto fail;
+  }
+  if (!S_ISREG(stb.st_mode)) {
+    err("%s:%d:%08x: '%s' is not regular", __PRETTY_FUNCTION__, __LINE__, err_id, path);
+    goto fail;
+  }
+  fin = fdopen(fd, "r");
+  if (!fin) {
+    err("%s:%d:%08x: fdopen failed: %s", __PRETTY_FUNCTION__, __LINE__, err_id, strerror(errno));
+    goto fail;
+  }
+  fd = -1;
+  fout = open_memstream(&txt_s, &txt_z);
+  if (!fin) {
+    err("%s:%d:%08x: open_memstream failed: %s", __PRETTY_FUNCTION__, __LINE__, err_id, strerror(errno));
+    goto fail;
+  }
+  while ((c = getc_unlocked(fin)) != EOF) {
+    putc_unlocked(c, fout);
+  }
+  fclose(fin);
+  fclose(fout);
+  utf8_fix_buf_2(&txt_s, &txt_z, 1, 1);
+  return txt_s;
+
+fail:;
+  if (fout) fclose(fout);
+  if (fin) fclose(fin);
+  if (fd >= 0) close(fd);
+  return NULL;
+}
+
+void
+ns_priv_request_review_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_list_reviews_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_list_pending_reviews_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_start_review_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_finish_review_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_heartbeat_review_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_list_active_reviews_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_get_active_review_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_heartbeat(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_postapprove_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_review_operation_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
+void
+ns_priv_render_markdown(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra);
 
 typedef PageInterface *(*external_action_handler_t)(void);
 
@@ -12189,6 +12451,21 @@ static action_handler_t actions_table[NEW_SRV_ACTION_LAST] =
   [NEW_SRV_ACTION_CHANGE_REGISTRATIONS] = priv_change_registrations_json,
   [NEW_SRV_ACTION_LIST_PROBLEMS_JSON] = priv_list_problems_json,
   [NEW_SRV_ACTION_GET_PROBLEM_JSON] = priv_get_problem_json,
+  [NEW_SRV_ACTION_REQUEST_REVIEW_JSON] = ns_priv_request_review_json,
+  [NEW_SRV_ACTION_LIST_REVIEWS_JSON] = ns_priv_list_reviews_json,
+  [NEW_SRV_ACTION_GET_REVIEW_JSON] = NULL,
+  [NEW_SRV_ACTION_UPDATE_REVIEW_JSON] = NULL,
+  [NEW_SRV_ACTION_PREMODERATE_JSON] = NULL,
+  [NEW_SRV_ACTION_LIST_PENDING_REVIEWS_JSON] = ns_priv_list_pending_reviews_json,
+  [NEW_SRV_ACTION_START_REVIEW_JSON] = ns_priv_start_review_json,
+  [NEW_SRV_ACTION_FINISH_REVIEW_JSON] = ns_priv_finish_review_json,
+  [NEW_SRV_ACTION_HEARTBEAT_REVIEW_JSON] = ns_priv_heartbeat_review_json,
+  [NEW_SRV_ACTION_LIST_ACTIVE_REVIEWS_JSON] = ns_priv_list_active_reviews_json,
+  [NEW_SRV_ACTION_GET_ACTIVE_REVIEW_JSON] = ns_priv_get_active_review_json,
+  [NEW_SRV_ACTION_POSTAPPROVE_JSON] = ns_priv_postapprove_json,
+  [NEW_SRV_ACTION_REVIEW_DISPLAYED_2] = priv_generic_operation,
+  [NEW_SRV_ACTION_REVIEW_OPERATION_JSON] = ns_priv_review_operation_json,
+  [NEW_SRV_ACTION_RENDER_MARKDOWN] = ns_priv_render_markdown,
 };
 
 static const unsigned char * const external_priv_action_names[NEW_SRV_ACTION_LAST] =
@@ -12237,6 +12514,10 @@ static const unsigned char * const external_priv_action_names[NEW_SRV_ACTION_LAS
   [NEW_SRV_ACTION_USER_RUN_HEADER_CLEAR_STOP_TIME] = "priv_user_run_header_clear_stop_time",
   [NEW_SRV_ACTION_SERVER_INFO_PAGE] = "priv_server_info_page",
   [NEW_SRV_ACTION_JOB_STATUS_PAGE] = "priv_job_status_page",
+  [NEW_SRV_ACTION_REVIEWS_PAGE] = "priv_reviews_page",
+  [NEW_SRV_ACTION_PREMODERATE_PAGE] = "priv_premoderate_page",
+  [NEW_SRV_ACTION_POSTAPPROVE_PAGE] = "priv_postapprove_page",
+  [NEW_SRV_ACTION_REVIEW_DISPLAYED_1] = "priv_review_displayed_1_page",
 };
 
 static const int external_priv_action_aliases[NEW_SRV_ACTION_LAST] =
@@ -12493,6 +12774,7 @@ copy_cti_to_phr(
 static int
 priv_check_cached_key(struct http_request_info *phr)
 {
+#define ERR(msg, ...) err("%s:%d:%08x:" msg, __PRETTY_FUNCTION__, __LINE__, phr->err_id ,##__VA_ARGS__)
   long long tsc_start;
   long long tsc_end;
   unsigned key_contest_id = phr->contest_id;
@@ -12547,6 +12829,7 @@ priv_check_cached_key(struct http_request_info *phr)
       }
       return 0;
     }
+    ERR("ej-users server is not available");
     return -NEW_SRV_ERR_USERLIST_SERVER_DOWN;
   }
 
@@ -12571,24 +12854,33 @@ priv_check_cached_key(struct http_request_info *phr)
       }
       return 0;
     }
+    ERR("ej-users server is not available");
     return -NEW_SRV_ERR_USERLIST_SERVER_DOWN;
   }
 
   if (r <= 0) {
+    ERR("api_key_request failed");
     r = -NEW_SRV_ERR_PERMISSION_DENIED;
   } else if (out_count != 1) {
+    ERR("api_key_request returned %d keys", out_count);
     r = -NEW_SRV_ERR_INTERNAL;
   } else if (cnts_info.user_id == 0 || cnts_info.contest_id == 0) {
+    ERR("user_id == 0 or contest_id == 0");
     r = -NEW_SRV_ERR_PERMISSION_DENIED;
   } else if (phr->contest_id > 0 && cnts_info.contest_id != phr->contest_id) {
+    ERR("contest_id mismatch");
     r = -NEW_SRV_ERR_PERMISSION_DENIED;
   } else if (cnts_info.reg_status != USERLIST_REG_OK) {
+    ERR("registration status is not OK");
     r = -NEW_SRV_ERR_PERMISSION_DENIED;
   } else if ((cnts_info.reg_flags & (USERLIST_UC_BANNED | USERLIST_UC_LOCKED | USERLIST_UC_DISQUALIFIED)) != 0) {
+    ERR("user is banned, or locked, or disqualified");
     r = -NEW_SRV_ERR_PERMISSION_DENIED;
   } else if (phr->role > out_keys[0].role) {
+    ERR("requested role %d but key provides role %d", phr->role, out_keys[0].role);
     r = -NEW_SRV_ERR_PERMISSION_DENIED;
   } else if (out_keys[0].expiry_time > 0 && current_time >= out_keys[0].expiry_time) {
+    ERR("key is expired");
     r = -NEW_SRV_ERR_PERMISSION_DENIED;
   }
 
@@ -12647,11 +12939,13 @@ priv_check_cached_key(struct http_request_info *phr)
     ++metrics.data->get_key_count;
   }
   return 0;
+#undef ERR
 }
 
 static int
 priv_check_cached_session(struct http_request_info *phr)
 {
+#define ERR(msg, ...) err("%s:%d:%08x:" msg, __PRETTY_FUNCTION__, __LINE__, phr->err_id ,##__VA_ARGS__)
   long long tsc_start;
   long long tsc_end;
 
@@ -12705,6 +12999,7 @@ priv_check_cached_session(struct http_request_info *phr)
       }
       return 0;
     }
+    ERR("ej-users server is not available");
     return -NEW_SRV_ERR_USERLIST_SERVER_DOWN;
   }
 
@@ -12730,6 +13025,7 @@ priv_check_cached_session(struct http_request_info *phr)
       }
       return 0;
     }
+    ERR("ej-users server is not available");
     return -NEW_SRV_ERR_USERLIST_SERVER_DOWN;
   }
   if (r < 0) {
@@ -12738,10 +13034,11 @@ priv_check_cached_session(struct http_request_info *phr)
     case ULS_ERR_CANNOT_PARTICIPATE:
     case ULS_ERR_NOT_REGISTERED:
     case ULS_ERR_INCOMPLETE_REG:
+      ERR("invalid session: error %d", r);
       r = -NEW_SRV_ERR_INV_SESSION;
       break;
     default:
-      fprintf(phr->log_f, "get_cookie failed: %s\n", userlist_strerror(-r));
+      ERR("get_cookie failed: %s", userlist_strerror(-r));
       r = -NEW_SRV_ERR_INTERNAL;
       break;
     }
@@ -12789,6 +13086,7 @@ priv_check_cached_session(struct http_request_info *phr)
     ++metrics.data->get_cookie_count;
   }
   return 0;
+#undef ERR
 }
 
 static struct new_session_info *
@@ -12802,6 +13100,7 @@ privileged_entry_point(
         FILE *fout,
         struct http_request_info *phr)
 {
+#define ERR(msg, ...) err("%s:%d:%08x:" msg, __PRETTY_FUNCTION__, __LINE__, phr->err_id ,##__VA_ARGS__)
   int r;
   opcap_t caps;
   const struct contest_desc *cnts = 0;
@@ -12818,14 +13117,14 @@ privileged_entry_point(
     if (phr->action == NEW_SRV_ACTION_CREATE_API_KEY || phr->action == NEW_SRV_ACTION_API_KEYS_PAGE || phr->action == NEW_SRV_ACTION_DELETE_API_KEY
         || phr->action == NEW_SRV_ACTION_COOKIE_LOGIN || phr->action == NEW_SRV_ACTION_LOGIN || phr->action == NEW_SRV_ACTION_LOGIN_PAGE
         || phr->action == NEW_SRV_ACTION_LOGIN_JSON) {
-      fprintf(phr->log_f, "invalid action for token auth\n");
+      ERR("invalid action for token auth");
       error_page(fout, phr, 0, -NEW_SRV_ERR_PERMISSION_DENIED);
       goto cleanup;
     }
 
     if (phr->contest_id > 0) {
       if (contests_get(phr->contest_id, &cnts) < 0 || !cnts) {
-        fprintf(phr->log_f, "invalid contest_id %d", phr->contest_id);
+        ERR("invalid contest_id %d", phr->contest_id);
         error_page(fout, phr, 0, -NEW_SRV_ERR_INV_CONTEST_ID);
         goto cleanup;
       }
@@ -12833,6 +13132,7 @@ privileged_entry_point(
 
     r = priv_check_cached_key(phr);
     if (r < 0) {
+      ERR("priv_check_cached_key failed");
       error_page(fout, phr, 0, r);
       goto cleanup;
     }
@@ -12845,6 +13145,7 @@ privileged_entry_point(
 
     r = priv_check_cached_session(phr);
     if (r < 0) {
+      ERR("priv_check_cached_session failed");
       error_page(fout, phr, 1, r);
       goto cleanup;
     }
@@ -12853,20 +13154,20 @@ privileged_entry_point(
   if (phr->locale_id < 0) phr->locale_id = 0;
 
   if (phr->contest_id < 0 || contests_get(phr->contest_id, &cnts) < 0 || !cnts) {
-    fprintf(phr->log_f, "invalid contest_id %d", phr->contest_id);
+    ERR("invalid contest_id %d", phr->contest_id);
     error_page(fout, phr, 1, NEW_SRV_ERR_INV_CONTEST_ID);
     goto cleanup;
   }
   if (!cnts->managed) {
-    fprintf(phr->log_f, "contest is not managed");
+    ERR("contest is not managed");
     error_page(fout, phr, 1, NEW_SRV_ERR_INV_CONTEST_ID);
     goto cleanup;
   }
   extra = ns_get_contest_extra(cnts, phr->config);
+  ASSERT(extra);
   if (cnts->enable_local_pages > 0 && !extra->cnts_actions) {
     extra->cnts_actions = ns_get_contest_external_actions(phr->contest_id, cur_time);
   }
-  ASSERT(extra);
 
   phr->cnts = cnts;
   phr->extra = extra;
@@ -12875,7 +13176,7 @@ privileged_entry_point(
   if (phr->role == USER_ROLE_ADMIN) {
     // as for the master program
     if (!contests_check_master_ip(phr->contest_id, &phr->ip, phr->ssl_flag)) {
-      fprintf(phr->log_f, "%s://%s is not allowed for MASTER for contest %d",
+      ERR("%s://%s is not allowed for MASTER for contest %d",
               ns_ssl_flag_str[phr->ssl_flag],
               xml_unparse_ipv6(&phr->ip), phr->contest_id);
       error_page(fout, phr, 1, NEW_SRV_ERR_PERMISSION_DENIED);
@@ -12884,7 +13185,7 @@ privileged_entry_point(
   } else {
     // as for judge program
     if (!contests_check_judge_ip(phr->contest_id, &phr->ip, phr->ssl_flag)) {
-      fprintf(phr->log_f, "%s://%s is not allowed for JUDGE for contest %d",
+      ERR("%s://%s is not allowed for JUDGE for contest %d",
               ns_ssl_flag_str[phr->ssl_flag],
               xml_unparse_ipv6(&phr->ip), phr->contest_id);
       error_page(fout, phr, 1, NEW_SRV_ERR_PERMISSION_DENIED);
@@ -12894,7 +13195,7 @@ privileged_entry_point(
 
   // analyze permissions
   if (phr->role <= 0 || phr->role >= USER_ROLE_LAST) {
-    fprintf(phr->log_f, "invalid role %d", phr->role);
+    ERR("invalid role %d", phr->role);
     error_page(fout, phr, 1, NEW_SRV_ERR_PERMISSION_DENIED);
     goto cleanup;
   }
@@ -12902,8 +13203,7 @@ privileged_entry_point(
     // as for the master program
     if (opcaps_find(&cnts->capabilities, phr->login, &caps) < 0
         || opcaps_check(caps, OPCAP_MASTER_LOGIN) < 0) {
-      fprintf(phr->log_f, "user %s does not have MASTER_LOGIN bit for contest %d",
-              phr->login, phr->contest_id);
+      ERR("user %s does not have MASTER_LOGIN bit for contest %d", phr->login, phr->contest_id);
       error_page(fout, phr, 1, NEW_SRV_ERR_PERMISSION_DENIED);
       goto cleanup;
     }
@@ -12911,16 +13211,14 @@ privileged_entry_point(
     // as for the judge program
     if (opcaps_find(&cnts->capabilities, phr->login, &caps) < 0
         || opcaps_check(caps, OPCAP_JUDGE_LOGIN) < 0) {
-      fprintf(phr->log_f, "user %s does not have JUDGE_LOGIN bit for contest %d",
-              phr->login, phr->contest_id);
+      ERR("user %s does not have JUDGE_LOGIN bit for contest %d", phr->login, phr->contest_id);
       error_page(fout, phr, 1, NEW_SRV_ERR_PERMISSION_DENIED);
       goto cleanup;
     }
   } else {
     // user privileges checked locally
     if (nsdb_check_role(phr->user_id, phr->contest_id, phr->role) < 0) {
-      fprintf(phr->log_f, "user %s has no permission to login as role %d for contest %d",
-              phr->login, phr->role, phr->contest_id);
+      ERR("user %s has no permission to login as role %d for contest %d", phr->login, phr->role, phr->contest_id);
       error_page(fout, phr, 1, NEW_SRV_ERR_PERMISSION_DENIED);
       goto cleanup;
     }
@@ -13000,7 +13298,7 @@ privileged_entry_point(
   if (phr->action > 0 && phr->action < NEW_SRV_ACTION_LAST && actions_table[phr->action]) {
     actions_table[phr->action](fout, phr, cnts, extra);
   } else {
-    fprintf(phr->log_f, "action is undefined");
+    ERR("action is undefined");
     error_page(fout, phr, 0, NEW_SRV_ERR_OPERATION_FAILED);
   }
 
@@ -13010,6 +13308,7 @@ cleanup:
   phr->log_f = NULL;
   phr->log_t = NULL;
   phr->log_z = 0;
+#undef ERR
 }
 
 void
@@ -15204,16 +15503,15 @@ emit_json_result(
         struct http_request_info *phr,
         int ok,
         int err_num,
-        unsigned err_id,
         const unsigned char *err_msg,
         cJSON *jr)
 {
   phr->json_reply = 1;
   if (!ok) {
     if (err_num < 0) err_num = -err_num;
-    if (!err_id) {
+    if (!phr->err_id) {
       random_init();
-      err_id = random_u32();
+      phr->err_id = random_u32();
     }
     if (!err_msg || !*err_msg) {
       err_msg = NULL;
@@ -15230,9 +15528,9 @@ emit_json_result(
       cJSON_AddNumberToObject(jerr, "num", err_num);
       cJSON_AddStringToObject(jerr, "symbol", ns_error_symbol(err_num));
     }
-    if (err_id) {
+    if (phr->err_id) {
       char xbuf[64];
-      sprintf(xbuf, "%08x", err_id);
+      sprintf(xbuf, "%08x", phr->err_id);
       cJSON_AddStringToObject(jerr, "log_id", xbuf);
     }
     if (err_msg) {
@@ -15272,7 +15570,6 @@ ns_submit_run_input(
   int ok = 0;
   int err_num = 0;
   unsigned char *err_msg = 0;
-  unsigned err_id = 0;
   cJSON *jr = cJSON_CreateObject(); // reply object
   const unsigned char *s;
   int prob_id;
@@ -15798,7 +16095,7 @@ ns_submit_run_input(
   ok = 1;
 
 done:;
-  emit_json_result(fout, phr, ok, err_num, err_id, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
 
 //cleanup:;
   if (jr) cJSON_Delete(jr);
@@ -15831,7 +16128,6 @@ ns_get_submit(
   int ok = 0;
   int err_num = 0;
   unsigned char *err_msg = NULL;
-  unsigned err_id = 0;
   cJSON *jr = cJSON_CreateObject(); // reply object
   int64_t submit_id = 0;
   const unsigned char *s = NULL;
@@ -15924,7 +16220,7 @@ ns_get_submit(
   ok = 1;
 
 done:;
-  emit_json_result(fout, phr, ok, err_num, err_id, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
 
   if (jr) cJSON_Delete(jr);
   free(err_msg);
@@ -19007,7 +19303,6 @@ unpriv_get_userprob(
   int err_num = 0;
   unsigned char *err_msg = NULL;
   cJSON *jr = cJSON_CreateObject(); // reply object
-  unsigned err_id = 0;
   const unsigned char *s = NULL;
   int prob_id;
   const struct section_problem_data *prob = NULL;
@@ -19051,7 +19346,7 @@ unpriv_get_userprob(
   ok = 1;
 
 done:;
-  emit_json_result(fout, phr, ok, err_num, err_id, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num,  err_msg, jr);
 
   userprob_entry_free(ue);
   if (jr) cJSON_Delete(jr);
@@ -19070,7 +19365,6 @@ unpriv_create_userprob(
   int err_num = 0;
   unsigned char *err_msg = NULL;
   cJSON *jr = cJSON_CreateObject(); // reply object
-  unsigned err_id = 0;
   const unsigned char *s = NULL;
   int prob_id;
   const struct section_problem_data *prob = NULL;
@@ -19115,8 +19409,7 @@ unpriv_create_userprob(
   ok = 1;
 
 done:;
-  emit_json_result(fout, phr, ok, err_num, err_id, err_msg, jr);
-
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   userprob_entry_free(ue);
   if (jr) cJSON_Delete(jr);
   free(err_msg);
@@ -19134,7 +19427,6 @@ unpriv_save_userprob(
   int err_num = 0;
   unsigned char *err_msg = NULL;
   cJSON *jr = cJSON_CreateObject(); // reply object
-  unsigned err_id = 0;
   const unsigned char *s = NULL;
   int64_t serial_id = 0;
   struct userprob_plugin_data *up_plugin = NULL;
@@ -19243,7 +19535,7 @@ unpriv_save_userprob(
   ok = 1;
 
 done:;
-  emit_json_result(fout, phr, ok, err_num, err_id, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
 
   userprob_entry_free(ue);
   if (jr) cJSON_Delete(jr);
@@ -19262,7 +19554,6 @@ unpriv_remove_userprob(
   int err_num = 0;
   unsigned char *err_msg = NULL;
   cJSON *jr = cJSON_CreateObject(); // reply object
-  unsigned err_id = 0;
   const unsigned char *s = NULL;
   int64_t serial_id = 0;
   struct userprob_plugin_data *up_plugin = NULL;
@@ -19312,11 +19603,166 @@ unpriv_remove_userprob(
   ok = 1;
 
 done:;
-  emit_json_result(fout, phr, ok, err_num, err_id, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
 
   userprob_entry_free(ue);
   if (jr) cJSON_Delete(jr);
   free(err_msg);
+}
+
+static void
+unpriv_request_review_json(
+        FILE *fout,
+        struct http_request_info *phr,
+        const struct contest_desc *cnts,
+        struct contest_extra *extra)
+{
+  serve_state_t cs = extra->serve_state;
+  cJSON *jr = cJSON_CreateObject();
+  int ok = 0;
+  int err_num = NEW_SRV_ERR_INV_PARAM;
+  const unsigned char *err_msg = NULL;
+  int http_status = 400;
+  const unsigned char *s = NULL;
+  int r;
+  int run_id;
+  int purpose = -1;
+  struct run_entry re;
+  struct run_review_filter filter = {.run_id = -1};
+  size_t reviews_count = 0;
+  struct run_review *reviews = NULL;
+
+#define ERR(msg, ...) err("%s:%d:%08x:" msg, __PRETTY_FUNCTION__, __LINE__, phr->err_id ,##__VA_ARGS__)
+
+  r = hr_cgi_param(phr, "run_id", &s);
+  if (!r) {
+    err_num = NEW_SRV_ERR_INV_RUN_ID;
+    ERR("run_id undefined");
+    goto done;
+  }
+  if (r < 0) {
+    err_num = NEW_SRV_ERR_INV_RUN_ID;
+    ERR("run_id is binary");
+    goto done;
+  }
+  {
+    char *eptr = NULL;
+    errno = 0;
+    long v = strtol(s, &eptr, 10);
+    if (errno || *eptr || s == (const unsigned char *)eptr || (int) v != v || v < 0) {
+      err_num = NEW_SRV_ERR_INV_RUN_ID;
+      ERR("invalid run_id");
+      goto done;
+    }
+    run_id = v;
+  }
+  if (run_get_entry(cs->runlog_state, run_id, &re) < 0) {
+    err_num = NEW_SRV_ERR_INV_RUN_ID;
+    ERR("invalid run_id");
+    goto done;
+  }
+  if (re.user_id != phr->user_id) {
+    err_num = NEW_SRV_ERR_INV_RUN_ID;
+    ERR("user_id mismatch");
+    goto done;
+  }
+  if (re.review_gen > 0) {
+    err_num = NEW_SRV_ERR_RUN_ALREADY_REVIEWED;
+    ERR("run already reviewed");
+    goto done;
+  }
+  if (run_is_status_for_user_review(re.status)) {
+    purpose = RERP_REVIEW;
+  } else if (run_is_status_for_user_help(re.status)) {
+    purpose = RERP_HELP;
+  } else {
+    err_num = NEW_SRV_ERR_INV_STATUS;
+    ERR("invalid status for review");
+    goto done;
+  }
+  const struct section_problem_data *prob = NULL;
+  if (re.prob_id > 0 && re.prob_id <= cs->max_prob) prob = cs->probs[re.prob_id];
+  if (!prob) {
+    err_num = NEW_SRV_ERR_INV_PROB_ID;
+    ERR("invalid problem %d in run_id %d", re.prob_id, run_id);
+    goto done;
+  }
+  if (prob->enable_external_review <= 0) {
+    err_num = NEW_SRV_ERR_INV_PROB_ID;
+    ERR("external review disabled for problem %d in run_id %d", re.prob_id, run_id);
+    goto done;
+  }
+  if (purpose == RERP_REVIEW) {
+    if (prob->enable_user_review_request <= 0) {
+      ERR("user review request disabled for problem %d in run_id %d", re.prob_id, run_id);
+      goto done;
+    }
+  } else if (purpose == RERP_HELP) {
+    if (prob->enable_user_help_request <= 0) {
+      ERR("user help request disabled for problem %d in run_id %d", re.prob_id, run_id);
+      goto done;
+    }
+  } else {
+    err_num = NEW_SRV_ERR_INV_PARAM;
+    ERR("unhandled purpose");
+    goto done;
+  }
+
+  filter.field_mask = RER_SERIAL_ID;
+  filter.contest_id = phr->contest_id;
+  filter.request_user_id = phr->user_id;
+  filter.include_purpose_mask = (1U << RERP_HELP) | (1U << RERP_REVIEW);
+  filter.creation_time_us_not_before = phr->current_time_us - 24LL * 60 * 60 * 1000000;
+  if (run_review_list(cs->runlog_state, &filter, &reviews, &reviews_count, NULL) < 0) {
+    err_num = NEW_SRV_ERR_DATABASE_FAILED;
+    http_status = 500;
+    ERR("run_review_list request failed");
+    goto done;
+  }
+  // FIXME: parametrize quota
+  if (reviews_count > 0) {
+    err_num = NEW_SRV_ERR_RUN_REVIEW_QUOTA_EXCEEDED;
+    ERR("review quota exceeded");
+    goto done;
+  }
+
+  int max_gen = 0;
+  if (re.review_gen > max_gen) max_gen = re.review_gen;
+  if (re.hidden_review_gen > max_gen) max_gen = re.hidden_review_gen;
+  int review_status = RERS_REQUESTED_REVIEW;
+  if (prob->disable_pre_moderation > 0) review_status = RERS_WAITING_REVIEW;
+  r = run_review_create(cs->runlog_state, re.serial_id, run_id, max_gen + 1, review_status, purpose, phr->user_id, 0, NULL);
+  if (r < 0) {
+    err_num = NEW_SRV_ERR_DATABASE_FAILED;
+    http_status = 500;
+    ERR("create review failed");
+    goto done;
+  }
+
+  struct run_entry ure = {};
+  r = run_change_review_status(cs->runlog_state, run_id, review_status, max_gen+1, re.hidden_review_status, re.hidden_review_gen, &ure);
+  if (r < 0) {
+    // TODO: remove review entry
+    err_num = NEW_SRV_ERR_DATABASE_FAILED;
+    http_status = 500;
+    ERR("update run review status failed");
+    goto done;
+  }
+
+  ok = 1;
+  err_num = 0;
+  http_status = 200;
+
+done:;
+  phr->json_reply = 1;
+  phr->status_code = http_status;
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
+  if (jr) {
+    cJSON_Delete(jr);
+  }
+  run_review_free_array(reviews, reviews_count);
+  free(reviews);
+#undef ERR
 }
 
 static action_handler_t user_actions_table[NEW_SRV_ACTION_LAST] =
@@ -19356,6 +19802,10 @@ static action_handler_t user_actions_table[NEW_SRV_ACTION_LAST] =
   [NEW_SRV_ACTION_CREATE_USERPROB] = unpriv_create_userprob,
   [NEW_SRV_ACTION_SAVE_USERPROB] = unpriv_save_userprob,
   [NEW_SRV_ACTION_REMOVE_USERPROB] = unpriv_remove_userprob,
+  [NEW_SRV_ACTION_REQUEST_REVIEW_JSON] = unpriv_request_review_json,
+  [NEW_SRV_ACTION_LIST_REVIEWS_JSON] = NULL,
+  [NEW_SRV_ACTION_GET_REVIEW_JSON] = NULL,
+  [NEW_SRV_ACTION_UPDATE_REVIEW_JSON] = NULL,
 };
 
 static const unsigned char * const external_unpriv_action_names[NEW_SRV_ACTION_LAST] =
@@ -20465,7 +20915,7 @@ done:;
   }
   phr->json_reply = 1;
   phr->status_code = http_status;
-  emit_json_result(fout, phr, ok, err_num, 0, err_msg, jr);
+  emit_json_result(fout, phr, ok, err_num, err_msg, jr);
   if (jr) {
     cJSON_Delete(jr);
   }
@@ -22068,6 +22518,12 @@ parse_bearer(struct http_request_info *phr, const unsigned char *str)
   return 0;
 }
 
+static int
+is_valid_id_char(int c)
+{
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '-';
+}
+
 // forced linking
 static void *forced_linking[] =
 {
@@ -22080,6 +22536,9 @@ ns_handle_http_request(
         FILE *fout,
         struct http_request_info *phr)
 {
+#define ERR(msg, ...) err("%s:%d:%08x:" msg, __PRETTY_FUNCTION__, __LINE__, phr->err_id ,##__VA_ARGS__)
+#define ERR_AND_LOG(msg, ...) do { err("%s:%d:%08x:" msg, __PRETTY_FUNCTION__, __LINE__, phr->err_id ,##__VA_ARGS__); fprintf(phr->log_f, msg "\n", ##__VA_ARGS__); } while (0)
+
   const unsigned char *script_filename = 0;
   path_t last_name;
   const unsigned char *http_host;
@@ -22087,6 +22546,7 @@ ns_handle_http_request(
   const unsigned char *protocol = "http";
   const unsigned char *remote_addr = NULL;
   const unsigned char *http_authorization = NULL;
+  const unsigned char *x_request_id = NULL;
   const unsigned char *s;
   path_t self_url;
   path_t context_url;
@@ -22095,6 +22555,7 @@ ns_handle_http_request(
 
   (void) forced_linking;
 
+  phr->load_contest = load_other_contest;
   phr->log_f = open_memstream(&phr->log_t, &phr->log_z);
 
   // make a self-referencing URL
@@ -22245,21 +22706,36 @@ ns_handle_http_request(
     }
   }
 
+  x_request_id = hr_getenv(phr, "HTTP_X_REQUEST_ID");
+  if (x_request_id && *x_request_id) {
+    int xlen = strlen(x_request_id);
+    if (xlen >= (int) sizeof(phr->x_request_id)) {
+      xlen = (int) sizeof(phr->x_request_id) - 1;
+    }
+    memcpy(phr->x_request_id, x_request_id, xlen);
+    phr->x_request_id[xlen] = 0;
+    for (int i = 0; i < xlen; ++i) {
+      if (!is_valid_id_char(x_request_id[i])) {
+        phr->x_request_id[i] = '_';
+      }
+    }
+  } else {
+    sprintf(phr->x_request_id, "%08x", random_u32());
+  }
+
   // parse the client IP address
   if (phr->client_state->ops->get_remote_addr) {
     remote_addr = phr->client_state->ops->get_remote_addr(phr->client_state);
   }
   if (!remote_addr) {
     if (!(remote_addr = hr_getenv(phr, "REMOTE_ADDR"))) {
-      err("REMOTE_ADDR does not exist");
-      fprintf(phr->log_f, "REMOTE_ADDR does not exist");
+      ERR_AND_LOG("REMOTE_ADDR does not exist");
       return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
     }
   }
   if (!strcmp(remote_addr, "::1")) remote_addr = "127.0.0.1";
   if (xml_parse_ipv6(NULL, 0, 0, 0, remote_addr, &phr->ip) < 0) {
-    err("cannot parse REMOTE_ADDR");
-    fprintf(phr->log_f, "cannot parse REMOTE_ADDR");
+    ERR_AND_LOG("cannot parse REMOTE_ADDR");
     return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
   }
 
@@ -22268,18 +22744,27 @@ ns_handle_http_request(
   }
 
   http_authorization = hr_getenv(phr, "HTTP_AUTHORIZATION");
+  int http_x_contest_id = 0;
   if (http_authorization) {
     int r = parse_bearer(phr, http_authorization);
     if (r == 0) {
-      fprintf(phr->log_f, "cannot parse authorization bearer");
+      ERR_AND_LOG("cannot parse authorization bearer");
       return error_page(fout, phr, 0, NEW_SRV_ERR_PERMISSION_DENIED);
+    }
+    const unsigned char *x_contest_id = hr_getenv(phr, "HTTP_X_CONTEST_ID");
+    if (x_contest_id) {
+      char *eptr = NULL;
+      errno = 0;
+      long x = strtol(x_contest_id, &eptr, 10);
+      if (!errno && !*eptr && eptr != (char*) x_contest_id && x > 0 && x < 1000000) {
+        http_x_contest_id = x;
+      }
     }
   }
 
   // parse the contest_id
-  if ((r = hr_cgi_param_int_opt(phr, "contest_id", &phr->contest_id, 0)) < 0) {
-    err("cannot parse contest_id");
-    fprintf(phr->log_f, "cannot parse contest_id");
+  if ((r = hr_cgi_param_int_opt(phr, "contest_id", &phr->contest_id, http_x_contest_id)) < 0) {
+    ERR_AND_LOG("cannot parse contest_id");
     return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
   }
   /*
@@ -22303,22 +22788,19 @@ ns_handle_http_request(
 
   // parse request_id
   if ((r = hr_cgi_param_int_opt(phr, "request_id", &phr->request_id, 0)) < 0) {
-    err("cannot parse request_id");
-    fprintf(phr->log_f, "cannot parse request_id");
+    ERR_AND_LOG("cannot parse request_id");
     return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
   }
 
   // parse the session_id
   if (!phr->session_id) {
     if ((r = hr_cgi_param(phr, "SID", &s)) < 0) {
-      err("cannot parse SID");
-      fprintf(phr->log_f, "cannot parse SID");
+      ERR_AND_LOG("cannot parse SID");
       return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
     }
     if (r > 0) {
       if (sscanf(s, "%llx%n", &phr->session_id, &n) != 1 || s[n] || !phr->session_id) {
-        err("cannot parse SID");
-        fprintf(phr->log_f, "cannot parse SID");
+        ERR_AND_LOG("cannot parse SID");
         return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
       }
     }
@@ -22326,14 +22808,12 @@ ns_handle_http_request(
 
   // parse the locale_id
   if ((r = hr_cgi_param(phr, "locale_id", &s)) < 0) {
-    err("cannot parse locale_id");
-    fprintf(phr->log_f, "cannot parse locale_id");
+    ERR_AND_LOG("cannot parse locale_id");
     return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
   }
   if (r > 0) {
     if (sscanf(s, "%d%n", &phr->locale_id, &n) != 1 || s[n] || phr->locale_id < 0) {
-      err("cannot parse locale_id");
-      fprintf(phr->log_f, "cannot parse locale_id");
+      ERR_AND_LOG("cannot parse locale_id");
       return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
     }
   }
@@ -22342,19 +22822,16 @@ ns_handle_http_request(
   if (rest_action && *rest_action) {
     phr->action = ns_match_action(rest_action);
     if (phr->action < 0) {
-      err("invalid action");
-      fprintf(phr->log_f, "invalid action");
+      ERR_AND_LOG("invalid action");
       return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
     }
   } else if ((s = hr_cgi_nname(phr, "action_", 7))) {
     if (sscanf(s, "action_%d%n", &phr->action, &n) != 1 || s[n] || phr->action <= 0) {
-      err("cannot parse action");
-      fprintf(phr->log_f, "cannot parse action");
+      ERR_AND_LOG("cannot parse action");
       return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
     }
   } else if ((r = hr_cgi_param(phr, "action", &s)) < 0) {
-    err("cannot parse action");
-    fprintf(phr->log_f, "cannot parse action");
+    ERR_AND_LOG("cannot parse action");
     return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
   } else if (r > 0) {
     if (sscanf(s, "%d%n", &phr->action, &n) != 1 || s[n] || phr->action <= 0) {
@@ -22363,8 +22840,7 @@ ns_handle_http_request(
             && !strcasecmp(ns_symbolic_action_table[r], s))
           break;
       if (r == NEW_SRV_ACTION_LAST) {
-        err("cannot parse action");
-        fprintf(phr->log_f, "cannot parse action");
+        ERR_AND_LOG("cannot parse action");
         return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
       }
       phr->action = r;
@@ -22419,9 +22895,8 @@ ns_handle_http_request(
   if (!script_filename) script_filename = hr_getenv(phr, "SCRIPT_FILENAME");
   if (!script_filename && phr->arg_num > 0) script_filename = phr->args[0];
   if (!script_filename) {
-    err("cannot get script filename");
-    fprintf(phr->log_f, "cannot get script filename");
-    error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
+    ERR_AND_LOG("cannot get script filename");
+    return error_page(fout, phr, 0, NEW_SRV_ERR_INV_PARAM);
   }
 
   os_rGetLastname(script_filename, last_name, sizeof(last_name));
@@ -22468,6 +22943,8 @@ ns_handle_http_request(
     strcpy(phr->role_name, "user");
     unprivileged_entry_point(fout, phr);
   }
+#undef ERR
+#undef ERR_AND_LOG
 }
 
 static int

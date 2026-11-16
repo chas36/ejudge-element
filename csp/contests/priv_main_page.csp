@@ -136,6 +136,19 @@
     <% if (phr->role >= USER_ROLE_ADMIN) { %>
             <li><s:a ac="server-info-page"><s:_>Server Info</s:_></s:a></li><br/>
     <% } %>
+    <% if (phr->role >= USER_ROLE_ADMIN) { %>
+            <li><s:a ac="reviews-page"><s:_>All reviews</s:_></s:a></li><br/>
+    <% } %>
+    <% if (phr->role >= USER_ROLE_JUDGE && opcaps_check(phr->caps, OPCAP_PREMOD_REVIEW) >= 0) {%>
+<s:url name="PremoderateUrl" ac="reviews-page">
+    <s:param name="mode" value="1" />
+</s:url>
+<s:url name="PostapproveUrl" ac="reviews-page">
+    <s:param name="mode" value="2" />
+</s:url>
+            <li><s:a url="PremoderateUrl"><s:_>Premoderate reviews</s:_></s:a></li><br/>
+            <li><s:a url="PostapproveUrl"><s:_>Postapprove reviews</s:_></s:a></li><br/>
+    <% } %>
         </ul>
     </li>
 
@@ -600,6 +613,13 @@
 
 <%
   if (opcaps_check(phr->caps, OPCAP_VIEW_CLAR) >= 0) {
+%>
+<hr/><h2><s:_>Messages</s:_><%
+    if (cs->external_review_enabled > 0 && phr->role >= USER_ROLE_JUDGE && opcaps_check(phr->caps, OPCAP_COMMENT_RUN) >= 0) {
+%> [<s:a url="PostapproveUrl"><s:_>Postapprove reviews</s:_></s:a>]<%
+    }
+%></h2>
+<%
     ns_write_all_clars(out_f, phr, cnts, extra, filter_mode_clar,
                        filter_first_clar_str, filter_last_clar_str);
   }
